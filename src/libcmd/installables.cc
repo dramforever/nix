@@ -21,6 +21,7 @@
 #include "nix/util/url.hh"
 #include "nix/fetchers/registry.hh"
 #include "nix/store/build-result.hh"
+#include "nix/util/config-global.hh"
 
 #include <regex>
 #include <queue>
@@ -44,6 +45,23 @@ void completeFlakeInputAttrPath(
                 completions.add(input.first);
     }
 }
+
+std::string InstallablesSettings::getDefaultFlake(std::string_view url)
+{
+    std::string res = defaultFlake;
+    if (res == "") {
+        throw UsageError("don't know how to handle installable '%s' without flake URL, because the option 'default-flake' is not set", url);
+    }
+    return res;
+}
+
+InstallablesSettings installablesSettings;
+
+static GlobalConfig::Register rInstallablesSettings(&installablesSettings);
+
+const static std::regex attrPathRegex(
+    R"((?:[a-zA-Z0-9_"-][a-zA-Z0-9_".-]*(?:\^((\*)|([a-z]+(,[a-z]+)*)))?))",
+    std::regex::ECMAScript);
 
 MixFlakeOptions::MixFlakeOptions()
 {
@@ -317,23 +335,38 @@ void completeFlakeRefWithFragment(
     /* Look for flake output attributes that match the
        prefix. */
     try {
+        bool isAttrPath = std::regex_match(prefix.begin(), prefix.end(), attrPathRegex);
         auto hash = prefix.find('#');
+
         if (hash == std::string::npos) {
             completeFlakeRef(completions, evalState->store, prefix);
-        } else {
+        }
+
+        if (isAttrPath || hash != std::string::npos) {
             completions.setType(AddCompletions::Type::Attrs);
 
-            auto fragment = prefix.substr(hash + 1);
+            auto fragment =
+                isAttrPath
+                ? prefix
+                : prefix.substr(hash + 1);
+
             std::string prefixRoot = "";
             if (fragment.starts_with(".")) {
                 fragment = fragment.substr(1);
                 prefixRoot = ".";
             }
-            auto flakeRefS = std::string(prefix.substr(0, hash));
+
+            auto flakeRefS =
+                isAttrPath
+                ? std::string(installablesSettings.getDefaultFlake(prefix))
+                : expandTilde(std::string(prefix.substr(0, hash)));
 
             // TODO: ideally this would use the command base directory instead of assuming ".".
             auto flakeRef =
-                parseFlakeRef(fetchSettings, expandTilde(flakeRefS), std::filesystem::current_path().string());
+                parseFlakeRef(
+                fetchSettings,
+                expandTilde(flakeRefS),
+                isAttrPath ? std::optional<std::string>{} : std::filesystem::current_path().string());
 
             auto evalCache = openEvalCache(
                 *evalState,
@@ -344,6 +377,7 @@ void completeFlakeRefWithFragment(
             if (prefixRoot == ".") {
                 attrPathPrefixes.clear();
             }
+
             /* Complete 'fragment' relative to all the
                attrpath prefixes as well as the root of the
                flake. */
@@ -369,10 +403,14 @@ void completeFlakeRefWithFragment(
                         auto attrPath2 = (*attr)->getAttrPath(attr2);
                         /* Strip the attrpath prefix. */
                         attrPath2.erase(attrPath2.begin(), attrPath2.begin() + attrPathPrefix.size());
+
                         // FIXME: handle names with dots
-                        completions.add(
-                            flakeRefS + "#" + prefixRoot
-                            + concatStringsSep(".", evalState->symbols.resolve(attrPath2)));
+                        std::string resolvedAttrPath2 = prefixRoot + concatStringsSep(".", evalState->symbols.resolve(attrPath2));
+
+                        if (isAttrPath)
+                            completions.add(resolvedAttrPath2);
+                        else
+                            completions.add(flakeRefS + "#" + resolvedAttrPath2);
                     }
                 }
             }
@@ -410,7 +448,7 @@ void completeFlakeRef(AddCompletions & completions, ref<Store> store, std::strin
             if (!hasPrefix(prefix, "flake:") && hasPrefix(from, "flake:")) {
                 std::string from2(from, 6);
                 if (hasPrefix(from2, prefix))
-                    completions.add(from2);
+                    completions.add(from2 + "#");
             } else {
                 if (hasPrefix(from, prefix))
                     completions.add(from);
@@ -534,10 +572,14 @@ Installables SourceExprCommand::parseInstallables(ref<Store> store, std::vector<
             }
 
             try {
+                bool isAttrPath = std::regex_match(std::string { prefix }, attrPathRegex);
+
                 auto [flakeRef, fragment] =
-                    parseFlakeRefWithFragment(fetchSettings, std::string{prefix}, absPath(getCommandBaseDir()));
-                result.push_back(
-                    make_ref<InstallableFlake>(
+                    isAttrPath
+                    ? std::pair { parseFlakeRef(fetchSettings, installablesSettings.getDefaultFlake(s), {}), std::string { prefix } }
+                    : parseFlakeRefWithFragment(fetchSettings, std::string { prefix }, absPath(getCommandBaseDir()));
+
+                result.push_back(make_ref<InstallableFlake>(
                         this,
                         getEvalState(),
                         std::move(flakeRef),
