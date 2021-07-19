@@ -26,8 +26,9 @@ std::string wrap(std::string prefix, std::string s)
     return concatStrings(prefix, s, ANSI_NORMAL);
 }
 
-struct CmdSearch : InstallableValueCommand, MixJSON
+struct CmdSearch : SourceExprCommand, MixJSON
 {
+    std::string _installable{installablesSettings.defaultFlake};
     std::vector<std::string> res;
     std::vector<std::string> excludeRes;
 
@@ -42,6 +43,24 @@ struct CmdSearch : InstallableValueCommand, MixJSON
                 .labels = {"regex"},
                 .handler = {[this](std::string s) { excludeRes.push_back(s); }},
             });
+
+        bool hasInstallable = false;
+
+        addFlag({
+            .longName = "installable",
+            .shortName = 'i',
+            .description = "Search within this installable",
+            .labels = {"installable"},
+            .handler = {[this, &hasInstallable](std::string ss) {
+                hasInstallable = true;
+                _installable = ss;
+            }},
+            .completer = completePath
+        });
+
+        if (hasInstallable && (file || expr)) {
+            throw UsageError("'--installable' cannot be used together with '--file' or '--expr'");
+        }
     }
 
     std::string description() override
@@ -61,15 +80,22 @@ struct CmdSearch : InstallableValueCommand, MixJSON
         return {"packages." + settings.thisSystem.get(), "legacyPackages." + settings.thisSystem.get()};
     }
 
-    void run(ref<Store> store, ref<InstallableValue> installable) override
+    void run(ref<Store> store) override
     {
+        if (_installable == "" && ! file && ! expr) {
+            throw UsageError("nothing to search from, set 'default-flake' option or specify one of '--installable', '--file', '--expr'");
+        }
+
         settings.readOnlyMode = true;
         evalSettings.enableImportFromDerivation.setDefault(false);
+
+        auto installable = InstallableValue::require(
+            parseInstallable(store, (file || expr) ? "" : _installable));
 
         // Recommend "^" here instead of ".*" due to differences in resulting highlighting
         if (res.empty())
             throw UsageError(
-                "Must provide at least one regex! To match all packages, use '%s'.", "nix search <installable> ^");
+                "Must provide at least one regex! To match all packages, use '%s'.", "nix search ^");
 
         std::vector<std::regex> regexes;
         std::vector<std::regex> excludeRegexes;
