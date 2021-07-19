@@ -138,7 +138,7 @@ nix build -o $TEST_ROOT/result flake1#foo
 [[ -e $TEST_ROOT/result/hello ]]
 
 # Test packages.default.
-nix build -o $TEST_ROOT/result flake1
+nix build -o $TEST_ROOT/result flake1#
 [[ -e $TEST_ROOT/result/hello ]]
 
 nix build -o $TEST_ROOT/result $flake1Dir
