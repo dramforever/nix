@@ -15,7 +15,7 @@ jobs:
       with:
         fetch-depth: 0
     - uses: cachix/install-nix-action@v12
-    - uses: cachix/cachix-action@v8
+    - uses: cachix/cachix-action@v10
       with:
         name: '${{ env.CACHIX_NAME }}'
         signingKey: '${{ secrets.CACHIX_SIGNING_KEY }}'
@@ -34,7 +34,7 @@ jobs:
       with:
         fetch-depth: 0
     - uses: cachix/install-nix-action@v12
-    - uses: cachix/cachix-action@v8
+    - uses: cachix/cachix-action@v10
       with:
         name: '${{ env.CACHIX_NAME }}'
         signingKey: '${{ secrets.CACHIX_SIGNING_KEY }}'
