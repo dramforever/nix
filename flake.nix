@@ -386,23 +386,64 @@
           '';
         };
       };
+      buildStatic = nixpkgs:
+        with commonDeps nixpkgs; nixpkgs.stdenv.mkDerivation {
+          name = "nix-${version}";
 
+          src = self;
+
+          VERSION_SUFFIX = versionSuffix;
+
+          outputs = [ "out" "dev" "doc" ];
+
+          nativeBuildInputs = nativeBuildDeps;
+          buildInputs = buildDeps ++ propagatedDeps;
+
+          configureFlags = [ "--sysconfdir=/etc" "--disable-doc-gen" ];
+
+          enableParallelBuilding = true;
+
+          makeFlags = "profiledir=$(out)/etc/profile.d";
+
+          doCheck = true;
+
+          installFlags = "sysconfdir=$(out)/etc";
+
+          postInstall = ''
+            mkdir -p $doc/nix-support
+            echo "doc manual $doc/share/doc/nix/manual" >> $doc/nix-support/hydra-build-products
+            mkdir -p $out/nix-support
+            echo "file binary-dist $out/bin/nix" >> $out/nix-support/hydra-build-products
+          '';
+
+          doInstallCheck = true;
+          installCheckFlags = "sysconfdir=$(out)/etc";
+
+          stripAllList = ["bin"];
+
+          strictDeps = true;
+
+          hardeningDisable = [ "pie" ];
+        };
     in {
 
       # A Nixpkgs overlay that overrides the 'nix' and
       # 'nix.perl-bindings' packages.
       overlay = overlayFor (p: p.stdenv);
 
-      hydraJobs = {
-        binaryTarballCross.x86_64-linux.riscv64-linux =
-          let
-            nixpkgsCross = import nixpkgs {
-              localSystem.config = "x86_64-unknown-linux-gnu";
-              crossSystem.config = "riscv64-unknown-linux-gnu";
-              overlays = [ self.overlay ];
-            };
-          in binaryTarball nixpkgsFor.x86_64-linux self.packages.x86_64-linux."nix-riscv64-linux" nixpkgsCross;
-      };
+      hydraJobs =
+        let
+          nixpkgsCross = import nixpkgs {
+            localSystem.config = "x86_64-unknown-linux-gnu";
+            crossSystem.config = "riscv64-unknown-linux-gnu";
+            overlays = [ self.overlay ];
+          };
+        in {
+          binaryTarballCross.x86_64-linux.riscv64-linux =
+            binaryTarball nixpkgsFor.x86_64-linux self.packages.x86_64-linux."nix-riscv64-linux" nixpkgsCross;
+          buildStaticCross.x86_64-linux.riscv64-linux =
+            buildStatic nixpkgsCross.pkgsStatic;
+        };
 
       packages = forAllSystems (system: {
         inherit (nixpkgsFor.${system}) nix;
