@@ -1,7 +1,7 @@
 {
   description = "The purely functional package manager";
 
-  inputs.nixpkgs.url = "nixpkgs/nixos-21.05-small";
+  inputs.nixpkgs.url = "github:zhaofengli/nixpkgs/riscv";
   inputs.lowdown-src = { url = "github:kristapsdz/lowdown"; flake = false; };
 
   outputs = { self, nixpkgs, lowdown-src }:
@@ -16,11 +16,11 @@
 
       officialRelease = false;
 
-      linux64BitSystems = [ "x86_64-linux" "aarch64-linux" ];
+      linux64BitSystems = [ "x86_64-linux" "aarch64-linux" "riscv64-linux" ];
       linuxSystems = linux64BitSystems ++ [ "i686-linux" ];
       systems = linuxSystems ++ [ "x86_64-darwin" "aarch64-darwin" ];
 
-      crossSystems = [ "armv6l-linux" "armv7l-linux" ];
+      crossSystems = [ "armv6l-linux" "armv7l-linux" "riscv64-linux" ];
 
       stdenvs = [ "gccStdenv" "clangStdenv" "clang11Stdenv" "stdenv" ];
 
@@ -394,162 +394,15 @@
       overlay = overlayFor (p: p.stdenv);
 
       hydraJobs = {
-
-        # Binary package for various platforms.
-        build = nixpkgs.lib.genAttrs systems (system: self.packages.${system}.nix);
-
-        buildStatic = nixpkgs.lib.genAttrs linux64BitSystems (system: self.packages.${system}.nix-static);
-
-        buildCross = nixpkgs.lib.genAttrs crossSystems (crossSystem:
-          nixpkgs.lib.genAttrs ["x86_64-linux"] (system: self.packages.${system}."nix-${crossSystem}"));
-
-        # Perl bindings for various platforms.
-        perlBindings = nixpkgs.lib.genAttrs systems (system: self.packages.${system}.nix.perl-bindings);
-
-        # Binary tarball for various platforms, containing a Nix store
-        # with the closure of 'nix' package, and the second half of
-        # the installation script.
-        binaryTarball = nixpkgs.lib.genAttrs systems (system: binaryTarball nixpkgsFor.${system} nixpkgsFor.${system}.nix nixpkgsFor.${system});
-
-        binaryTarballCross = nixpkgs.lib.genAttrs ["x86_64-linux"] (system: builtins.listToAttrs (map (crossSystem: {
-          name = crossSystem;
-          value = let
+        binaryTarballCross.x86_64-linux.riscv64-linux =
+          let
             nixpkgsCross = import nixpkgs {
-              inherit system crossSystem;
+              localSystem.config = "x86_64-unknown-linux-gnu";
+              crossSystem.config = "riscv64-unknown-linux-gnu";
               overlays = [ self.overlay ];
             };
-          in binaryTarball nixpkgsFor.${system} self.packages.${system}."nix-${crossSystem}" nixpkgsCross;
-        }) crossSystems));
-
-        # The first half of the installation script. This is uploaded
-        # to https://nixos.org/nix/install. It downloads the binary
-        # tarball for the user's system and calls the second half of the
-        # installation script.
-        installerScript = installScriptFor [ "x86_64-linux" "i686-linux" "aarch64-linux" "x86_64-darwin" "aarch64-darwin" "armv6l-linux" "armv7l-linux" ];
-        installerScriptForGHA = installScriptFor [ "x86_64-linux" "x86_64-darwin" "armv6l-linux" "armv7l-linux"];
-
-        # docker image with Nix inside
-        dockerImage = nixpkgs.lib.genAttrs linux64BitSystems (system:
-          let
-            pkgs = nixpkgsFor.${system};
-            image = import ./docker.nix { inherit pkgs; tag = version; };
-          in pkgs.runCommand "docker-image-tarball-${version}"
-            { meta.description = "Docker image with Nix for ${system}";
-            }
-            ''
-              mkdir -p $out/nix-support
-              image=$out/image.tar.gz
-              ln -s ${image} $image
-              echo "file binary-dist $image" >> $out/nix-support/hydra-build-products
-            '');
-
-        # Line coverage analysis.
-        coverage =
-          with nixpkgsFor.x86_64-linux;
-          with commonDeps pkgs;
-
-          releaseTools.coverageAnalysis {
-            name = "nix-coverage-${version}";
-
-            src = self;
-
-            enableParallelBuilding = true;
-
-            nativeBuildInputs = nativeBuildDeps;
-            buildInputs = buildDeps ++ propagatedDeps ++ awsDeps;
-
-            dontInstall = false;
-
-            doInstallCheck = true;
-
-            lcovFilter = [ "*/boost/*" "*-tab.*" ];
-
-            # We call `dot', and even though we just use it to
-            # syntax-check generated dot files, it still requires some
-            # fonts.  So provide those.
-            FONTCONFIG_FILE = texFunctions.fontsConf;
-          };
-
-        # System tests.
-        tests.remoteBuilds = import ./tests/remote-builds.nix {
-          system = "x86_64-linux";
-          inherit nixpkgs;
-          inherit (self) overlay;
-        };
-
-        tests.nix-copy-closure = import ./tests/nix-copy-closure.nix {
-          system = "x86_64-linux";
-          inherit nixpkgs;
-          inherit (self) overlay;
-        };
-
-        tests.nssPreload = (import ./tests/nss-preload.nix rec {
-          system = "x86_64-linux";
-          inherit nixpkgs;
-          inherit (self) overlay;
-        });
-
-        tests.githubFlakes = (import ./tests/github-flakes.nix rec {
-          system = "x86_64-linux";
-          inherit nixpkgs;
-          inherit (self) overlay;
-        });
-
-        tests.setuid = nixpkgs.lib.genAttrs
-          ["i686-linux" "x86_64-linux"]
-          (system:
-            import ./tests/setuid.nix rec {
-              inherit nixpkgs system;
-              inherit (self) overlay;
-            });
-
-        /*
-        # Check whether we can still evaluate all of Nixpkgs.
-        tests.evalNixpkgs =
-          import (nixpkgs + "/pkgs/top-level/make-tarball.nix") {
-            # FIXME: fix pkgs/top-level/make-tarball.nix in NixOS to not require a revCount.
-            inherit nixpkgs;
-            pkgs = nixpkgsFor.x86_64-linux;
-            officialRelease = false;
-          };
-
-        # Check whether we can still evaluate NixOS.
-        tests.evalNixOS =
-          with nixpkgsFor.x86_64-linux;
-          runCommand "eval-nixos" { buildInputs = [ nix ]; }
-            ''
-              export NIX_STATE_DIR=$TMPDIR
-
-              nix-instantiate ${nixpkgs}/nixos/release-combined.nix -A tested --dry-run \
-                --arg nixpkgs '{ outPath = ${nixpkgs}; revCount = 123; shortRev = "abcdefgh"; }'
-
-              touch $out
-            '';
-        */
-
-        installTests = forAllSystems (system:
-          let pkgs = nixpkgsFor.${system}; in
-          pkgs.runCommand "install-tests" {
-            againstSelf = testNixVersions pkgs pkgs.nix pkgs.pkgs.nix;
-            againstCurrentUnstable =
-              # FIXME: temporarily disable this on macOS because of #3605.
-              if system == "x86_64-linux"
-              then testNixVersions pkgs pkgs.nix pkgs.nixUnstable
-              else null;
-            # Disabled because the latest stable version doesn't handle
-            # `NIX_DAEMON_SOCKET_PATH` which is required for the tests to work
-            # againstLatestStable = testNixVersions pkgs pkgs.nix pkgs.nixStable;
-          } "touch $out");
-
+          in binaryTarball nixpkgsFor.x86_64-linux self.packages.x86_64-linux."nix-riscv64-linux" nixpkgsCross;
       };
-
-      checks = forAllSystems (system: {
-        binaryTarball = self.hydraJobs.binaryTarball.${system};
-        perlBindings = self.hydraJobs.perlBindings.${system};
-        installTests = self.hydraJobs.installTests.${system};
-      } // (if system == "x86_64-linux" then {
-        dockerImage = self.hydraJobs.dockerImage.${system};
-      } else {}));
 
       packages = forAllSystems (system: {
         inherit (nixpkgsFor.${system}) nix;
