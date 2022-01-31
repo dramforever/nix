@@ -10,6 +10,8 @@
 #include "nix/expr/attr-path.hh"
 #include "nix/util/hilite.hh"
 #include "nix/util/strings-inline.hh"
+#include "nix/util/fmt.hh"
+#include "nix/expr/value-to-json.hh"
 
 #include <boost/regex.hpp>
 #include <nlohmann/json.hpp>
@@ -147,10 +149,13 @@ struct CmdSearch : InstallableValueCommand, MixJSON
                     if (found) {
                         results++;
                         if (json) {
+                            NixStringContext context;
+
                             (*jsonOut)[attrPathStr] = {
                                 {"pname", name.name},
                                 {"version", name.version},
                                 {"description", description},
+                                {"meta", printValueAsJSON(*state, true, aMeta->forceValue(), noPos, context, false)}
                             };
                         } else {
                             if (results > 1)
