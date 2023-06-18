@@ -113,6 +113,8 @@ void loadConfFile(AbstractConfig & config)
        ~/.nix/nix.conf or the command line. */
     config.resetOverridden();
 
+    settings.environment.overridden = settings.environment.hasInherited;
+
     auto files = settings.nixUserConfFiles;
     for (auto file = files.rbegin(); file != files.rend(); file++) {
         applyConfigFile(*file);
@@ -326,6 +328,60 @@ unsigned int MaxBuildJobsSetting::parse(const std::string & str) const
             return *n;
         else
             throw UsageError("configuration setting '%s' should be 'auto' or an integer", name);
+    }
+}
+void EnvironmentSetting::appendOrSet(Strings newValue, bool append)
+{
+    if (! append) {
+        for (auto & [name, oldValue] : oldEnvironment) {
+            if (oldValue.has_value()) {
+                setenv(name.c_str(), oldValue->c_str(), 1);
+            } else {
+                unsetenv(name.c_str());
+            }
+        }
+        oldEnvironment.clear();
+        value.clear();
+        hasInherited = false;
+    }
+
+    std::map<std::string, std::optional<std::string>> result;
+
+    for (auto & elem : newValue) {
+        size_t pos = elem.find('=');
+        if (pos == std::string::npos) {
+            // name
+            auto envValue = getEnv(elem.c_str());
+            if (envValue.has_value()) {
+                result.insert_or_assign(elem, std::optional { envValue.value() });
+                hasInherited = true;
+                overridden = true;
+            } else {
+                result.insert_or_assign(elem, std::nullopt);
+            }
+        } else {
+            // name=value
+            auto name = elem.substr(0, pos);
+            auto value = elem.substr(pos + 1);
+            result.insert_or_assign(name, std::optional { value });
+        }
+    }
+
+    for (auto i = value.begin(); i != value.end(); i ++) {
+        size_t pos = i->find('=');
+        std::string name = (pos == std::string::npos) ? *i : i->substr(0, pos);
+        if (result.count(name))
+            value.erase(i);
+    }
+
+    for (auto & [name, val] : result) {
+        oldEnvironment.emplace(name, getEnv(name));
+        if (val.has_value()) {
+            setenv(name.c_str(), val.value().c_str(), 1);
+            value.push_back(fmt("%1%=%2%", name, val.value()));
+        } else {
+            value.push_back(name);
+        }
     }
 }
 
