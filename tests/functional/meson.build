@@ -181,6 +181,7 @@ suites = [
       'user-envs-migration.sh',
       'user-envs.sh',
       'why-depends.sh',
+      'environment.sh',
     ],
     'workdir' : meson.current_source_dir(),
   },
