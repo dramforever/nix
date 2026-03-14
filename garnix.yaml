@@ -1,0 +1,7 @@
+builds:
+  include:
+    - "checks.x86_64-linux.garnix-binfmt-misc"
+    - "checks.x86_64-linux.garnix-binfmt-misc-old-kernel"
+    - "checks.x86_64-linux.garnix-binfmt-misc-unpriv-daemon"
+  exclude: []
+  branch: binfmt-misc
