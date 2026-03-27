@@ -356,6 +356,12 @@
               )).componentTests
             )
         // devFlake.checks.${system} or { }
+        // {
+          # HACK
+          garnix-binfmt-misc = self.hydraJobs.tests.binfmt-misc;
+          garnix-binfmt-misc-unpriv-daemon = self.hydraJobs.tests.binfmt-misc-unpriv-daemon;
+          garnix-binfmt-misc-old-kernel = self.hydraJobs.tests.binfmt-misc-old-kernel;
+        }
       );
 
       packages = forAllSystems (
