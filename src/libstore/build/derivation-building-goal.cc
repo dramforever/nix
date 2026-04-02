@@ -86,9 +86,18 @@ Goal::Co DerivationBuildingGoal::gaveUpOnSubstitution(bool storeDerivation)
        are (resolved) derivation outputs in a resolved derivation. */
     if (&worker.evalStore != &worker.store) {
         RealisedPath::Set inputSrcs;
-        for (auto & i : drv->inputSrcs)
-            if (worker.evalStore.isValidPath(i))
-                inputSrcs.insert(i);
+        for (auto & i : drv->inputSrcs) {
+            if (!worker.evalStore.isValidPath(i))
+                continue;
+
+            /* Since drv is not held as a temp root in the build store, we can't
+               rely on drv to keep inputSrcs alive in the *build* store. (But
+               note they *are* held by drv in the *eval* store.) So, explicitly
+               add paths from inputSrcs here. */
+            worker.store.addTempRoot(i);
+
+            inputSrcs.insert(i);
+        }
         copyClosure(worker.evalStore, worker.store, inputSrcs);
     }
 
