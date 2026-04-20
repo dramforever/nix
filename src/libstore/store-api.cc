@@ -728,8 +728,12 @@ void Store::substitutePaths(const StorePathSet & paths)
         }
 }
 
-StorePathSet Store::queryValidPaths(const StorePathSet & paths, SubstituteFlag maybeSubstitute)
+StorePathSet
+Store::queryValidPaths(const StorePathSet & paths, SubstituteFlag maybeSubstitute, AddTempRootsFlag maybeAddTempRoots)
 {
+    if (maybeAddTempRoots)
+        addTempRoots(paths);
+
     struct State
     {
         size_t left;
@@ -999,7 +1003,7 @@ std::map<StorePath, StorePath> copyPaths(
     CheckSigsFlag checkSigs,
     SubstituteFlag substitute)
 {
-    auto valid = dstStore.queryValidPaths(storePaths, substitute);
+    auto valid = dstStore.queryValidPaths(storePaths, substitute, AddTempRoots);
 
     StorePathSet missing;
     for (auto & path : storePaths)
