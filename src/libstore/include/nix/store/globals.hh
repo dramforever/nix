@@ -99,6 +99,24 @@ struct NarInfoDiskCacheSettings : public virtual Config
         )"};
 };
 
+struct EnvironmentSetting : public BaseSetting<Strings>
+{
+    std::map<std::string, std::optional<std::string>> oldEnvironment;
+    bool hasInherited = false;
+
+    EnvironmentSetting(Config * options,
+        const Strings & def,
+        const std::string & name,
+        const std::string & description,
+        const StringSet & aliases = {})
+        : BaseSetting<Strings>(def, true, name, description, aliases)
+    {
+        options->addSetting(this);
+    }
+
+    void appendOrSet(Strings newValue, bool append) override;
+};
+
 class Settings : public virtual Config,
                  private LocalSettings,
                  private LogFileSettings,
@@ -423,6 +441,23 @@ public:
      * Get the options needed for profile directory functions.
      */
     ProfileDirsOptions getProfileDirsOptions() const;
+
+    EnvironmentSetting environment{this, {}, "environment",
+        R"(
+          Extra environments variables to use. A list of items, each in the
+          format of:
+
+          - `name=value`: Set environment variable `name` to `value`.
+          - `name`: Inherit environment variable `name` from current
+            environment.
+
+          If the user is trusted (see `trusted-users` option), the daemon will
+          also have these environment variables set.
+
+          This option is useful for, e.g., setting `https_proxy` for
+          fixed-output derivations and substituter downloads in a multi-user
+          Nix installation.
+        )"};
 };
 
 // FIXME: don't use a global variable.
